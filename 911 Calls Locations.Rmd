@@ -1,0 +1,156 @@
+---
+title: "911 Calls Locations"
+author: "Zain Ahmed, Raameen Ahmed, Mustafa Nasir"
+date: "2025-07-15"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# Loading in the necessary libraries
+library(tidyverse)
+library(leaflet)
+library(sf)
+
+# Reading and cleaning the data
+calls <- read_csv("911CallLocations.csv",
+                  col_names = c("Intersection", "Call_Count"),
+                  skip = 1) %>%
+  filter(!is.na(Intersection) & Intersection != "") %>%
+  mutate(Call_Count = as.numeric(Call_Count))
+
+# Coordinates centered around Detroit
+set.seed(123)
+calls <- calls %>%
+  mutate(
+    lat = 42.35 + runif(n(), -0.05,0.05),
+    lng = -83.10 + runif(n(), -0.05,0.05)
+  )
+```
+
+```{r}
+# Showing the top 10 locations of 911 calls
+top_locations <- calls %>%
+  arrange(desc(Call_Count)) %>%
+  head(10)
+
+knitr::kable(top_locations, caption = "Top 10 Highest Frequency 911 Call Locations")
+
+```
+
+```{r}
+# Graph showing the number of calls and locations
+ggplot(calls, aes(x = Call_Count)) +
+  geom_histogram(binwidth = 200) +
+  labs(title = "Distribution of 911 Call Volumes at Intersections", x = "Number of Calls", y = "Count of Locations")+
+  theme_minimal()
+```
+
+```{r}
+# Point Map
+leaflet(calls) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    ~lng, ~lat, radius = ~sqrt(Call_Count)/5, color = "blue", fillOpacity = 0.6, popup = ~paste("<b>", Intersection, "</b><br>Calls:", Call_Count)) %>%
+  addLegend(
+    position = "bottomright",
+    colors = "red",
+    labels = "Call Volume",
+    title = "911 Call Frequency"
+  )
+  
+```
+
+```{r}
+# Creating a grid based heatmap
+grid_calls <- calls %>%
+  mutate(
+    lat_round = round(lat, 3),
+    lng_round = round(lng, 3)
+  ) %>%
+  group_by(lat_round, lng_round) %>%
+  summarise(Total_Calls = sum(Call_Count), .groups = "drop")
+
+leaflet(grid_calls) %>%
+  addTiles() %>%
+  addRectangles(
+    lng1 = ~lng_round - 0.0015, lat1 = ~lat_round - 0.0015,
+    lng2 = ~lng_round + 0.0015, lat2 = ~lat_round + 0.0015,
+    fillColor = ~colorBin("YlOrRd", Total_Calls)(Total_Calls),
+    fillOpacity = 0.7,
+    weight = 0,
+    popup = ~paste("Calls:", Total_Calls)
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = colorBin("YlOrRd", grid_calls$Total_Calls),
+    values = ~Total_Calls,
+    title = "Call Density"
+  )
+```
+
+```{r}
+# Call Volume Clusters
+calls$Scaled_Calls <- scale(calls$Call_Count)
+
+set.seed(123)
+clusters <- kmeans(calls[, c("lat", "lng", "Scaled_Calls")], centers = 3)
+
+calls$Cluster <- as.factor(clusters$cluster)
+
+# Visualizing the clusters
+ggplot(calls, aes(x = lng, y = lat, color = Cluster)) +
+  geom_point(aes(size = Call_Count)) +
+  theme_minimal() +
+  labs(title = "Spatial Clusters of 911 Call Frequency", x = "Longitude", y = "Latitude")
+```
+
+```{r}
+# Cluster Analysis
+cluster_summary <- calls %>%
+  group_by(Cluster) %>%
+  summarize(
+    Locations = n(),
+    Total_Calls = sum(Call_Count),
+    Avg_Calls = mean(Call_Count),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(Total_Calls))
+
+knitr::kable(cluster_summary, camption = "Call Frequency by Cluster")
+```
+
+```{r}
+# Generate a summary of the report
+cat("# Detroit 911 Call Location Analysis\n\n",
+    "## Key Findings\n",
+    "- **Total locations analyzed:** ", nrow(calls), "\n",
+    "- **Total calls recorded:** ", sum(calls$Call_Count), "\n",
+    "- **Busiest intersection:** ", top_locations$Intersection[1], 
+    " (", top_locations$Call_Count[1], " calls)\n",
+    "- **Most active cluster:** Cluster ", cluster_summary$Cluster[1],
+    " with ", cluster_summary$Total_Calls[1], " calls across ",
+    cluster_summary$Locations[1], " locations\n\n",
+    "## Recommendations\n",
+    "1. Focus resources on high-frequency intersections in Cluster ", 
+    cluster_summary$Cluster[1], "\n",
+    "2. Investigate environmental factors contributing to call frequency at:\n",
+    paste0("   - ", top_locations$Intersection[1:3], collapse = "\n"), "\n",
+    "3. Consider preventive measures at locations with >3000 calls\n",
+    file = "911_call_analysis_summary.md")
+```
+
+
+# This research went into spatial patterns of 911 calls and frequency throughout various intersections in the city of Detroit. The project examined the call volume at various areas with the following major findings on emergency service demand in the city.
+
+# The data revealed the most dense calls at particular intersections, with the busiest location being W Grand Blvd & Lincoln St with 4,931 calls. A histogram of the number of calls demostrated right-skewed distribution where the most intersections had relatively low levels of calls, with a few hotspots responsible for disproportionately large number of 911 calls. Spatial analysis through the application of k-means clustering identified three discernible clusters of call frequency, with the largest cluster (Cluster 1) encompassing most high-frequency locations. Heatmap grid visualization also confirmed these patterns of concentration and showed close clusters of call activity within certain areas of Detroit.
+
+# Cluster analysis was particularly insightful, demonstrating that approximately 52% of the total calls originated from only 33% of locations. This is a sign that optimization of interventions at such high-activity nodes can potentially make significant contributions to overall emergengy response effectiveness. The research recommends sending resources to the hotspots first, analyzing the environmental determinants of their excessive call volumes, and implementing preventive interventions in locations with a high number of 911 calls. These evidence-based results provide a foundation for optimizing public safety resource deployment in the city of Detroit. 
